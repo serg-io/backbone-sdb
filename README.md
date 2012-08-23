@@ -1,4 +1,4 @@
 backbone-sdb
 ============
 
-Backbone.js sync for SimpleDB
+Server side Backbone.js sync implementation for SimpleDB.
