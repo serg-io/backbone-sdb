@@ -13,13 +13,12 @@ var aws = require('aws2js'),
 
 var sdb = null;
 
-(Backbone.SDB.setup = function(options) {
-	options || (options = {});
-	var key = options.accessKeyId || process.env.AWS_ACCESS_KEY_ID,
-		secretKey = options.secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY,
-		region = options.region || process.env.AWS_REGION;
+(Backbone.SDB.setup = function(accessKeyID, secretAccessKey, awsRegion) {
+	var accessKey = accessKeyID || process.env.AWS_ACCESS_KEY_ID,
+		secretKey = secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY,
+		region = awsRegion || process.env.AWS_REGION || 'us-east-1';
 	
-	if (key && secretKey) sdb = aws.load('sdb', key, secretKey);
+	if (accessKey && secretKey) sdb = aws.load('sdb', accessKey, secretKey);
 	if (sdb && region) sdb.setRegion(region);
 })();
 
@@ -452,7 +451,7 @@ var classMethods = {
 					count = null;
 					if (_.isFunction(options.error)) options.error({code: 'DBError', sdb: response});
 				}
-				if (count !== null && _.isFunction(options.success)) options.success(count, {sdb: response});
+				if (count && _.isFunction(options.success)) options.success(count, {sdb: response});
 			}
 			
 			if (_.isFunction(options.complete)) options.complete(count, {sdb: response});
@@ -466,15 +465,13 @@ var classMethods = {
 			domainName = dbUtils.quoteName(instance._domainName());
 
 		var sort = '',
-			order = options.order,
 			orderBy = options.orderBy;
 		if (orderBy) {
-			// The 'orderBy' attribute must be part of the query expression
-			if (!query[orderBy]) query[orderBy] = {$isnull: false}; // TODO: Change to $undefined
+			if (!query[orderBy]) query[orderBy] = {$isundefined: false}; // The 'orderBy' attribute must be part of the query expression
 
 			var attrSchema = Backbone.SDB.Model.prototype._attributeSchema.call(instance, schema[orderBy]);
 			sort = ' ORDER BY ' + dbUtils.quoteName(orderBy, attrSchema);
-			if (order && /^(ASC|DESC)$/i.test(order)) sort += ' ' + order.toUpperCase();
+			if (/^(ASC|DESC)$/i.test(options.order)) sort += ' ' + options.order.toUpperCase();
 		}
 
 		var where = dbUtils.processQueryExpression(query, schema);
