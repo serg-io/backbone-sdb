@@ -77,8 +77,7 @@ function DBUtils() {
 				return predicate !== null;
 			}, this).value().join(' AND ') + ')';
 		} else if (expr.$every) {
-			// TODO: Make 'every' upper case?
-			return this.processSingleExpression('every(' + qn + ')', expr.$every, attrSchema);
+			return this.processSingleExpression('EVERY(' + qn + ')', expr.$every, attrSchema);
 		} else if (expr.$not) {
 			return this.processSingleExpression('NOT ' + qn, expr.$not, attrSchema);
 		}
@@ -98,7 +97,7 @@ function DBUtils() {
 
 	this.processSingleExpression = function(quotedName, expr, attrSchema) {
 		if (_.isUndefined(expr)) return quotedName + ' IS NULL';
-		else if (expr != null && !_.isString(expr) && !_.isNumber(expr) && !_.isBoolean(expr) && !_.isDate(expr)) { // TODO: What if it isNaN?
+		else if(_.isObject(expr) && !_.isDate(expr)) {
 			var operator, opKey = _.keys(expr)[0];
 			if (operator = operators[opKey]) {
 				var value = expr[opKey];
@@ -235,13 +234,23 @@ function DBUtils() {
 		_.each(attributes, function(value, name) {
 			if (schema[name]) {
 				var attrSchema = model._attributeSchema(schema[name]);
-				if (attrSchema.array && _.isArray(value) && !_.isEmpty(value)) { // TODO: Save empty arrays
+				if (attrSchema.array && _.isArray(value)) {
 					params['Attribute.' + i + '.Replace'] = true; // Replace only the first attribute of an array
-					_.each(value, function(val) {
+					if (_.isEmpty(value)) {
 						params['Attribute.' + i + '.Name'] = name;
-						params['Attribute.' + i + '.Value'] = this.encode(val, attrSchema);
+						params['Attribute.' + i + '.Value'] = '[]';
 						i++;
-					}, this);
+					} else if (value.length === 1 && value[0] === null) {
+						params['Attribute.' + i + '.Name'] = name;
+						params['Attribute.' + i + '.Value'] = '[null]';
+						i++;
+					} else {
+						_.each(value, function(val) {
+							params['Attribute.' + i + '.Name'] = name;
+							params['Attribute.' + i + '.Value'] = this.encode(val, attrSchema);
+							i++;
+						}, this);
+					}
 				} else {
 					params['Attribute.' + i + '.Replace'] = true;
 					params['Attribute.' + i + '.Name'] = name;
@@ -297,16 +306,19 @@ function DBUtils() {
 
 			if (schema[name]) {
 				var attrSchema = Backbone.SDB.Model.prototype._attributeSchema.call(this, schema[name]);
+				if ((value === '[]' || value === '[null]') && attrSchema.array && _.isUndefined(attrs[name])) {
+					attrs[name] = value === '[]' ? [] : [null];
+					return;
+				}
 
-				// FIXME: Array with a single null element.
-				// If an array attribute had ONLY one null element when it was saved,
-				// the attribute becomes null when reading it back.
-				// It doesn't happen when there are more elements (null or non-null) in the array.
 				var v = this.decode(value, attrSchema);
-				if (!attrSchema.array || (v === null && _.isUndefined(attrs[name]))) { // Array attributes can be null
+				if (!attrSchema.array) {
 					attrs[name] = v;
-				} else { // If the attribute should be an array
-					// TODO: Read empty arrays
+				} else if (v === null && _.isUndefined(attrs[name])) {
+					// The attribute, which is supposed to be an array, is null, or
+					// the first parsed array element is null and the array contains more elements
+					attrs[name] = null;
+				} else {
 					_.isArray(attrs[name]) || (attrs[name] = !_.isUndefined(attrs[name]) ? [attrs[name]] : []);
 					attrs[name].push(v);
 				}
@@ -323,6 +335,7 @@ function DBUtils() {
 			DomainName: model._domainName()
 		};
 		_.extend(params, options.sdb);
+		console.log('Fetching: ', params);
 		
 		// If a 'close' event was fired on the SimpleDB HTTP request, the callback might be called twice,
 		// therefore, the callback is forced to run only once.
@@ -402,8 +415,6 @@ function DBUtils() {
 	
 	function sync(method, instance, options) {
 		if (method === 'create' || method === 'update') {
-			// TODO: If update, put only the attributes that have changed?
-			// TODO: What if attributes have been removed during the 'update'?
 			this.putItem(instance, options);
 		} else if (method === 'read') {
 			if (instance instanceof Backbone.SDB.Model && instance.id) this.getItem(instance, options);

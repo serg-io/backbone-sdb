@@ -20,10 +20,12 @@ var Clients = Backbone.SDB.Collection.extend({
 	model: Client
 });
 
+var clients = new Clients();
+
 function compareFn(test, expected) {
 	return function(client) {
 		var equal = true,
-			expected = (expected || clients).get(client.id);
+			expected = expected || clients.get(client.id);
 		try {
 			if (_.isUndefined(expected)) throw 'Expected not found';
 			if (client.get('firstName')		!== expected.get('firstName'))		throw 'Not equal';
@@ -43,7 +45,6 @@ function compareFn(test, expected) {
 	};
 }
 
-var clients = new Clients();
 var len = Dataset.clients.length;
 
 exports.create = function(test) {
