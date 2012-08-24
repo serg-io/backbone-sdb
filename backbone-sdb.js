@@ -186,7 +186,7 @@ function DBUtils() {
 		attrSchema || (attrSchema = {});
 		var type = attrSchema.type;
 		if (type === Number) {
-			// TODO: Javascript might add extra precision floatating digits when substracting the offset (min).
+			// TODO: Javascript might add extra precision floating digits when substracting the offset (min).
 			// Consider: 0.55 - 1 = -0.44999999999999996
 			var min = _.result(attrSchema, 'min'), // Offset (default: 0)
 				precision = _.result(attrSchema, 'precision');
@@ -226,7 +226,7 @@ function DBUtils() {
 			_.each(model._unsetAttributeNames, function(name) {
 				delParams['Attribute.' + i++ + '.Name'] = name;
 			});
-			sdb.request('DeleteAttributes', delParams);
+			sdb.request('DeleteAttributes', delParams, function(error, response) {});
 		}
 		
 		i = 0;

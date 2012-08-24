@@ -84,6 +84,11 @@ Backbone.SDB = {
 			return attributes;
 		},
 		set: function(key, value, options) {
+			if (options && options.unset) {
+				this._unsetAttributeNames.push(key);
+				return Backbone.Model.prototype.set.apply(this, arguments);
+			}
+
 			var attrs;
 			if (_.isObject(key) || key == null) {
 				attrs = key;
@@ -93,8 +98,6 @@ Backbone.SDB = {
 				attrs[key] = value;
 			}
 
-			options || (options = {});
-			if (options.unset) for (attrName in attrs) this._unsetAttributeNames.push(attrName);
 			return Backbone.Model.prototype.set.call(this, this._processJSON(attrs), options);
 		},
 		validate: function(attributes) {
@@ -102,7 +105,7 @@ Backbone.SDB = {
 				errors = [];
 
 			_.each(attributes, function(value, name) {
-				if (schema[name]) {
+				if (schema[name] && !_.isUndefined(value)) {
 					var attrSchema = this._attributeSchema(schema[name]);
 
 					if (value === null) {
