@@ -254,14 +254,6 @@ Backbone.SDB = {
 	Collection: Backbone.Collection.extend({
 		_schema: function() {
 			return this.model.prototype._schema.call(this, this.model.schema);
-			// var schema = this.model.schema,
-			// 	idAttrName = this._idAttribute();
-			// schema = _.isFunction(schema) ? schema(this) : schema;
-
-			// if (!schema[idAttrName]) schema[idAttrName] = {type: String};
-			// if (!schema[idAttrName].itemName) schema[idAttrName].itemName = true;
-
-			// return schema;
 		},
 		_idAttribute: function() {
 			return _.result(this.model.prototype, 'idAttribute');

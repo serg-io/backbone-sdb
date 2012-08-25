@@ -32,8 +32,8 @@ function compareFn(test, expected) {
 			if (client.get('lastName')		!== expected.get('lastName'))		throw 'Not equal';
 			if (client.get('middleInitial')	!== expected.get('middleInitial'))	throw 'Not equal';
 			if (client.get('age')			!== expected.get('age'))			throw 'Not equal';
-			// if (client.get('latitude')		!== expected.get('latitude'))		throw 'Not equal';
-			// if (client.get('longitude')		!== expected.get('longitude'))		throw 'Not equal';
+			if (client.get('latitude')		!== expected.get('latitude'))		throw 'Not equal';
+			if (client.get('longitude')		!== expected.get('longitude'))		throw 'Not equal';
 			
 			var colors = _.sortBy(client.favoriteColors, function(color) {return color;}),
 				expectedColors = _.sortBy(expected.favoriteColors, function(color) {return color;});
@@ -120,6 +120,38 @@ exports.queryByAge = function(test) {
 				collection.each(function(client) {
 					var age = client.get('age');
 					test.ok(age >= 25 && age <= 35, 'The age of the client is out of the query range');
+				});
+			}
+		},
+		error: function(collection, error) {
+			test.ok(false, 'Error while executing query.\nError:\n' + JSON.stringify(error));
+		},
+		complete: function(collection, response) {
+			test.done();
+		}
+	});
+};
+
+exports.queryByLatLong = function(test) {
+	var expected = new Clients(clients.filter(function(client) {
+		var lat = client.get('latitude'),
+			lon = client.get('longitude');
+		return lat >= 71 && lat <= 72 && lon >= 86 && lon <= 87;
+	}));
+	test.expect(expected.length);
+
+	Clients.query({
+		latitude: {$between: [71, 72]},
+		longitude: {$between: [86, 87]}
+	}, {
+		sdb: {ConsistentRead: true},
+		success: function(collection, response) {
+			if (collection.length !== expected.length) test.ok(false, 'The query returned ' + collection.length + ' models, instead of the expected ' + expected.length);
+			else {
+				collection.each(function(client) {
+					var lat = client.get('latitude'),
+						lon = client.get('longitude');
+					test.ok(lat >= 71 && lat <= 72 && lon >= 86 && lon <= 87, 'The coordinates of the client are out of the query range');
 				});
 			}
 		},

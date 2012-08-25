@@ -115,8 +115,8 @@ exports.read = function(test) {
 					if (client.get('lastName')		!== expected.get('lastName'))		throw 'Not equal';
 					if (client.get('middleInitial')	!== expected.get('middleInitial'))	throw 'Not equal';
 					if (client.get('age')			!== expected.get('age'))			throw 'Not equal';
-					// if (client.get('latitude')		!== expected.get('latitude'))		throw 'Not equal';
-					// if (client.get('longitude')		!== expected.get('longitude'))		throw 'Not equal';
+					if (client.get('latitude')		!== expected.get('latitude'))		throw 'Not equal';
+					if (client.get('longitude')		!== expected.get('longitude'))		throw 'Not equal';
 					
 					var colors = _.sortBy(client.favoriteColors, function(color) {return color;}),
 						expectedColors = _.sortBy(expected.favoriteColors, function(color) {return color;});

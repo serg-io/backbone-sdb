@@ -150,7 +150,16 @@ function DBUtils() {
 	this.zeroPad = function(value, length, precision) {
 		var str = Math.floor(value).toFixed();
 		for (var i = length - str.length; i > 0; i--) str = '0' + str;
-		if (precision) str += '.' + Math.floor(value * Math.pow(10, precision)).toFixed().substr(precision * -1);
+		if (precision) {
+			var right = '' + value,
+				i = right.indexOf('.') + 1;
+			right = i ? right.substr(i) : ''; // `right`: a string of all the digits to the right of the decimal point
+			
+			if (right.length > precision) right = right.substr(0, precision); // Drop any digits beyond the specified `precision`
+			str += '.' + right;
+
+			for (var j = precision - right.length; j > 0; j--) str += '0'; // Zero pad it up to the specified `precision`
+		}
 		return str;
 	};
 	
@@ -168,7 +177,22 @@ function DBUtils() {
 
 			// If attrSchema has no valid 'length', use min and max to determine the maximum number of digits (default: 10)
 			if (!_.isNumber(len)) len = _.isNumber(max) ? Math.floor(max + min).toFixed().length : 10;
-			return this.zeroPad(value + min, len, precision);
+
+			if (!precision) return this.zeroPad(value + min, len); // No precision means that the number is an integer
+
+			// The following is a workaround to Javascript's floating digits problem. Consider this:
+			// 0.55 - 1 // Returns -0.44999999999999996
+			// new Number((0.55 - 1).toFixed(2)).valueOf() // Returns -0.45
+
+			// Using `min` and `value`, get `rightLength`, which is the maximum number of digits to the right of the decimal point
+			var minStr = '' + min,
+				valStr = '' + value,
+				i = minStr.indexOf('.') + 1,
+				j = valStr.indexOf('.') + 1,
+				rightLength = Math.max(i ? minStr.substr(i).length : 0, j ? valStr.substr(j).length : 0);
+
+			var val = new Number((value + min).toFixed(rightLength)).valueOf();
+			return this.zeroPad(val, len, precision);
 		} else if (type === Boolean && _.isBoolean(value)) {
 			return value.toString();
 		} else if (type === Date && _.isDate(value)) {
@@ -185,12 +209,24 @@ function DBUtils() {
 		attrSchema || (attrSchema = {});
 		var type = attrSchema.type;
 		if (type === Number) {
-			// TODO: Javascript might add extra precision floating digits when substracting the offset (min).
-			// Consider: 0.55 - 1 = -0.44999999999999996
 			var min = _.result(attrSchema, 'min'), // Offset (default: 0)
 				precision = _.result(attrSchema, 'precision');
 			min = _.isNumber(min) ? Math.abs(precision ? min : Math.floor(min)) : 0;
-			return new Number(value).valueOf() - min;
+
+			var val = new Number(value).valueOf();
+			if (!precision) return val - min; // No precision means that the number is an integer
+
+			// The following is a workaround to Javascript's floating digits problem. Consider this:
+			// 0.55 - 1 // Returns -0.44999999999999996
+			// new Number((0.55 - 1).toFixed(2)).valueOf() // Returns -0.45
+
+			// Using `min` and `value`, get `rightLength`, which is the maximum number of digits to the right of the decimal point
+			var minStr = '' + min,
+				i = minStr.indexOf('.') + 1,
+				j = value.indexOf('.') + 1,
+				rightLength = Math.max(i ? minStr.substr(i).length : 0, j ? value.substr(j).length : 0);
+
+			return new Number((val - min).toFixed(rightLength)).valueOf();
 		} else if (type === Boolean) {
 			return value === 'true';
 		} else if (type === Date) {
