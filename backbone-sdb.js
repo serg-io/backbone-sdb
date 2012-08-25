@@ -23,11 +23,11 @@ var sdb = null;
 })();
 
 function DBUtils() {
-	this.processQueryExpression = function(query, schema) {
+	this.processQueryExpression = function(query, instance) {
 		var where = '';
 		_.each(query, function(expression, name) {
 			if (/^\$not$/i.test(name)) {
-				var notWhere = this.processQueryExpression(expression, schema);
+				var notWhere = this.processQueryExpression(expression, instance);
 				if (notWhere.length > 0) {
 					where += ' AND (NOT(' + notWhere + '))';
 				}
@@ -42,13 +42,13 @@ function DBUtils() {
 						if (_.isEmpty(arrExpr)) return null;
 						
 						var n = _.keys(arrExpr)[0]; // Only one filter per arrExpr, any others are ignored
-						return this.processExpression(n, arrExpr[n], schema);
+						return this.processExpression(n, arrExpr[n], instance);
 					}, this).filter(function(predicate) {
 						return predicate !== null;
 					}, this).value().join(' ' + joinStr + ' ') + ')';
 				}
 			} else {
-				var expr = this.processExpression(name, expression, schema);
+				var expr = this.processExpression(name, expression, instance);
 				if (expr !== null) where += ' AND ' + expr;
 			}
 		}, this);
@@ -64,15 +64,15 @@ function DBUtils() {
 		return where;
 	};
 	
-	this.processExpression = function(name, expr, schema) {
-		var attrSchema = Backbone.SDB.Model.prototype._attributeSchema.call(this, schema[name]),
+	this.processExpression = function(name, expr, instance) {
+		var attrSchema = instance._attributeSchema(name),
 			qn = this.quoteName(name, attrSchema);
 
 		if (_.isObject(expr) && _.keys(expr).length > 1) {
 			return '(' + _.chain(expr).map(function(v, n) {
 				var singleExpr = {};
 				singleExpr[n] = v;
-				return this.processExpression(name, singleExpr, schema);
+				return this.processExpression(name, singleExpr, instance);
 			}, this).filter(function(predicate) {
 				return predicate !== null;
 			}, this).value().join(' AND ') + ')';
@@ -143,7 +143,7 @@ function DBUtils() {
 	};
 	
 	this.quoteName = function(name, attrSchema) {
-		if (name === 'id') return 'itemName()';
+		if (attrSchema && attrSchema.itemName) return 'itemName()';
 		return '`' + name.replace(/`/g, '``') + '`';
 	};
 	
@@ -205,19 +205,14 @@ function DBUtils() {
 	};
 	
 	this.putItem = function(model, options) {
+		var idAttrName = _.result(model, 'idAttribute');
+
 		var changed = {};
 		var params = {
-			ItemName: model.id || (changed.id = _.result(model, 'customId') || uuid()),
+			ItemName: model.id || (changed[idAttrName] = uuid()),
 			DomainName: model._domainName()
 		};
 		_.extend(params, options.sdb);
-		
-		var schema = model._schema();
-		_.each(schema, function(attributeSchema, name) {
-			var attrSchema = Backbone.SDB.Model.prototype._attributeSchema.call(this, attributeSchema),
-				update = _.result(attrSchema, 'onUpdate');
-			if (!_.isUndefined(update)) changed[name] = update;
-		}, this);
 		
 		var i = 0;
 		if (!_.isEmpty(model._unsetAttributeNames) && !model.isNew()) {
@@ -230,10 +225,10 @@ function DBUtils() {
 		
 		i = 0;
 		var attributes = _.extend({}, model.toJSON().model, changed);
-		delete attributes.id;
+		delete attributes[idAttrName];
 		_.each(attributes, function(value, name) {
-			if (schema[name]) {
-				var attrSchema = model._attributeSchema(schema[name]);
+			var attrSchema = model._attributeSchema(name);
+			if (attrSchema) {
 				if (attrSchema.array && _.isArray(value)) {
 					params['Attribute.' + i + '.Replace'] = true; // Replace only the first attribute of an array
 					if (_.isEmpty(value)) {
@@ -298,14 +293,14 @@ function DBUtils() {
 		}));
 	};
 
-	this.parseAttributes = function(attributes, schema) {
+	this.parseAttributes = function(instance, attributes) {
 		var attrs = {};
 		_.each(attributes, function(attr) {
 			var name = attr.Name,
 				value = attr.Value;
 
-			if (schema[name]) {
-				var attrSchema = Backbone.SDB.Model.prototype._attributeSchema.call(this, schema[name]);
+			var attrSchema = instance._attributeSchema(name);
+			if (attrSchema) {
 				if ((value === '[]' || value === '[null]') && attrSchema.array && _.isUndefined(attrs[name])) {
 					attrs[name] = value === '[]' ? [] : [null];
 					return;
@@ -335,7 +330,6 @@ function DBUtils() {
 			DomainName: model._domainName()
 		};
 		_.extend(params, options.sdb);
-		console.log('Fetching: ', params);
 		
 		// If a 'close' event was fired on the SimpleDB HTTP request, the callback might be called twice,
 		// therefore, the callback is forced to run only once.
@@ -355,7 +349,7 @@ function DBUtils() {
 					options.error(model, {code: 'NotFound', sdb: response});
 				}
 
-				if (attrs) options.success({model: this.parseAttributes(attrs, model._schema()), sdb: response});
+				if (attrs) options.success({model: this.parseAttributes(model, attrs), sdb: response});
 			}
 			
 			if (_.isFunction(options.complete)) options.complete(model, {sdb: response});
@@ -388,8 +382,14 @@ function DBUtils() {
 				var collection = _.map(items, function(item) {
 					var attrs = item.Attribute;
 					_.isArray(attrs) || (attrs = [attrs]);
-					attrs = this.parseAttributes(attrs, instance._schema());
-					return {model: _.extend({id: item.Name}, attrs)};
+					attrs.push({
+						Name: instance._idAttribute(),
+						Value: item.Name
+					});
+
+					return {
+						model: this.parseAttributes(instance, attrs)
+					};
 				}, this);
 
 				if (instance instanceof Backbone.SDB.Collection) {
@@ -472,7 +472,6 @@ var classMethods = {
 		query || (query = {});
 		options || (options = {});
 		var instance = new this(), // Can be Model or Collection
-			schema = instance._schema(),
 			domainName = dbUtils.quoteName(instance._domainName());
 
 		var sort = '',
@@ -480,12 +479,11 @@ var classMethods = {
 		if (orderBy) {
 			if (!query[orderBy]) query[orderBy] = {$isundefined: false}; // The 'orderBy' attribute must be part of the query expression
 
-			var attrSchema = Backbone.SDB.Model.prototype._attributeSchema.call(instance, schema[orderBy]);
-			sort = ' ORDER BY ' + dbUtils.quoteName(orderBy, attrSchema);
+			sort = ' ORDER BY ' + dbUtils.quoteName(orderBy, instance._attributeSchema(orderBy));
 			if (/^(ASC|DESC)$/i.test(options.order)) sort += ' ' + options.order.toUpperCase();
 		}
 
-		var where = dbUtils.processQueryExpression(query, schema);
+		var where = dbUtils.processQueryExpression(query, instance);
 		if (!_.isEmpty(where)) where = ' WHERE ' + where;
 
 		var limit = '';

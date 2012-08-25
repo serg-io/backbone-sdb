@@ -74,10 +74,6 @@ function compareFn(test, expected) {
 			if (actual.get('lastName')		!== expected.get('lastName'))		throw 'Not equal';
 			if (actual.get('middleInitial')	!== expected.get('middleInitial'))	throw 'Not equal';
 
-			console.log('favoriteColors');
-			console.log(expected.get('favoriteColors'));
-			console.log(actual.get('favoriteColors'));
-
 			if (expected.get('favoriteColors') === null && actual.get('favoriteColors') !== null) throw 'Not equal';
 			else {
 				var colors = _.sortBy(actual.favoriteColors, function(color) {return color;}),

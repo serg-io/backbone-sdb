@@ -27,9 +27,19 @@ Backbone.SDB = {
 
 	Model: Backbone.Model.extend({
 		_unsetAttributeNames: [],
-		_schema: function() {
-			var schema = this.constructor.schema;
-			return _.isFunction(schema) ? schema(this) : schema;
+		_schema: function(schema) {
+			var idAttrName = this._idAttribute();
+
+			schema || (schema = this.constructor.schema);
+			if (_.isFunction(schema)) schema = schema(this);
+			
+			if (!schema[idAttrName]) schema[idAttrName] = {type: String};
+			if (!schema[idAttrName].itemName) schema[idAttrName].itemName = true;
+
+			return schema;
+		},
+		_idAttribute: function() {
+			return _.result(this, 'idAttribute');
 		},
 		save: function(attributes, options) {
 			return Backbone.Model.prototype.save.call(this, attributes, bindContext(options));
@@ -43,7 +53,8 @@ Backbone.SDB = {
 		parse: function(obj) {
 			return obj.model;
 		},
-		_attributeSchema: function(attributeSchema) {
+		_attributeSchema: function(name) {
+			var attributeSchema = this._schema()[name];
 			if (_.isUndefined(attributeSchema)) return {};
 
 			var array = _.isArray(attributeSchema),
@@ -53,38 +64,51 @@ Backbone.SDB = {
 			attrSchema.array = array || _.result(attrSchema, 'array');
 			return attrSchema;
 		},
+		_processValue: function(value, attrSchema) {
+			if (_.isString(value)) {
+				var type = attrSchema.type;
+				if (type === String) {
+					var v = null;
+					if (_.result(attrSchema, 'trim') === true) v = value.trim();
+					if (_.result(attrSchema, 'lowercase') === true) v = (v || value).toLowerCase();
+					else if (_.result(attrSchema, 'uppercase') === true) v = (v || value).toUpperCase();
+					if (v) return v;
+				} else if (type === Number) {
+					var parsed = _.isNumber(_.result(attrSchema, 'precision')) ? parseFloat(value) : parseInt(value);
+					if (_.isNumber(parsed) && !_.isNaN(parsed)) return parsed;
+				} else if (type === Date && isISODate.test(value)) {
+					return new Date(value);
+				} else if (type === Boolean) {
+					return value === 'true';
+				}
+			}
+		},
 		_processJSON: function(attributes) {
 			// Converts values, to their correct type, that are kept as strings by JSON.parse() (i.e. Dates)
 			// or that are captured as strings from HTML forms
-			_.each(this._schema(), function(attributeSchema, name) {
-				// TODO: Run same logic in arrays?
-				var attrSchema = this._attributeSchema(attributeSchema),
-					value = attributes[name],
-					type = attrSchema.type;
-				if (_.isString(value)) {
-					if (type === String) {
-						if (_.result(attrSchema, 'trim') === true) attributes[name] = value.trim();
-						if (_.result(attrSchema, 'lowercase') === true) attributes[name] = value.toLowerCase();
-						else if (_.result(attrSchema, 'uppercase') === true) attributes[name] = value.toUpperCase();
-					} else {
-						if (type === Date && isISODate.test(value)) {
-							attributes[name] = new Date(value);
-						} else if (type === Number) {
-							var parsed = _.isNumber(_.result(attrSchema, 'precision')) ? parseFloat(value) : parseInt(value);
-							if (_.isNumber(parsed) && !_.isNaN(parsed)) attributes[name] = parsed;
-						} else if (type === Boolean) {
-							attributes[name] = value === 'true';
+			_.each(attributes, function(value, name) {
+				var attrSchema = this._attributeSchema(name);
+				if (attrSchema) {
+					if (!attrSchema.array) {
+						var processed = this._processValue(value, attrSchema);
+						if (processed) attributes[name] = processed;
+					} else if (_.isArray(value)) {
+						for (var i = 0; i < value.length; i++) {
+							var processed = this._processValue(value[i], attrSchema);
+							if (processed) attributes[name][i] = processed;
 						}
+
+						// There can't be 2 attributes with the same name and value in SimpleDB
+						if (attributes[name].length > 1) attributes[name] = _.uniq(attributes[name]);
 					}
-				} else if (attrSchema.array && _.isArray(value) && !_.isEmpty(value)) {
-					// There can't be 2 attributes with the same name and value in SimpleDB
-					attributes[name] = _.uniq(value);
 				}
 			}, this);
 			return attributes;
 		},
 		set: function(key, value, options) {
 			if (options && options.unset) {
+				if (key === _.result(model, 'idAttribute')) throw 'The "idAttribute" cannot be unset';
+
 				this._unsetAttributeNames.push(key);
 				return Backbone.Model.prototype.set.apply(this, arguments);
 			}
@@ -101,13 +125,10 @@ Backbone.SDB = {
 			return Backbone.Model.prototype.set.call(this, this._processJSON(attrs), options);
 		},
 		validate: function(attributes) {
-			var schema = this._schema(),
-				errors = [];
-
+			var errors = [];
 			_.each(attributes, function(value, name) {
-				if (schema[name] && !_.isUndefined(value)) {
-					var attrSchema = this._attributeSchema(schema[name]);
-
+				var attrSchema = this._attributeSchema(name);
+				if (attrSchema && !_.isUndefined(value)) {
 					if (value === null) {
 						var nullable = _.result(attrSchema, 'nullable') !== false;
 						if (!nullable) {
@@ -232,8 +253,21 @@ Backbone.SDB = {
 
 	Collection: Backbone.Collection.extend({
 		_schema: function() {
-			var schema = this.model.schema;
-			return _.isFunction(schema) ? schema(this) : schema;
+			return this.model.prototype._schema.call(this, this.model.schema);
+			// var schema = this.model.schema,
+			// 	idAttrName = this._idAttribute();
+			// schema = _.isFunction(schema) ? schema(this) : schema;
+
+			// if (!schema[idAttrName]) schema[idAttrName] = {type: String};
+			// if (!schema[idAttrName].itemName) schema[idAttrName].itemName = true;
+
+			// return schema;
+		},
+		_idAttribute: function() {
+			return _.result(this.model.prototype, 'idAttribute');
+		},
+		_attributeSchema: function(name) {
+			return this.model.prototype._attributeSchema.call(this, name);
 		},
 		fetch: function(options) {
 			return Backbone.Collection.prototype.fetch.call(this, bindContext(options));
