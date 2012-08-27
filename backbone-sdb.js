@@ -1,5 +1,5 @@
 /**
-backbone-sdb 0.0.2 - (c) 2012 Sergio Alcantara
+backbone-sdb 0.0.3 - (c) 2012 Sergio Alcantara
 Server side (Node.js) `Backbone.sync()` SimpleDB implementation
 
 @module SimpleDB
