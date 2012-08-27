@@ -1,5 +1,5 @@
 /**
-backbone-sdb 0.0.1 - (c) 2012 Sergio Alcantara
+backbone-sdb 0.0.2 - (c) 2012 Sergio Alcantara
 Server side (Node.js) `Backbone.sync()` SimpleDB implementation
 
 @module SimpleDB
@@ -29,7 +29,7 @@ function DBUtils() {
 			if (/^\$not$/i.test(name)) {
 				var notWhere = this.processQueryExpression(expression, instance);
 				if (notWhere.length > 0) {
-					where += ' AND (NOT(' + notWhere + '))';
+					where += ' AND (NOT (' + notWhere + '))';
 				}
 			} else if (/^\$/.test(name)) { // $and, $or, $intersection
 				var joinStr = name.substr(1).toUpperCase();
@@ -464,18 +464,59 @@ function DBUtils() {
 }
 var dbUtils = new DBUtils();
 
-var instanceMethods = {
-	_domainName: function() {
-		var isColl = this instanceof Backbone.SDB.Collection,
-			domainName = isColl ? this.model.domainName : this.constructor.domainName;
-		if (domainName) return _.isFunction(domainName) ? domainName(this) : domainName;
+function _domainName() {
+	var isColl = this instanceof Backbone.SDB.Collection,
+		domainName = isColl ? this.model.domainName : this.constructor.domainName;
+	if (domainName) return _.isFunction(domainName) ? domainName(this) : domainName;
 
-		domainName = _.result(this, isColl ? 'url' : 'urlRoot').replace(/^\//, '');
-		return domainName.charAt(0).toUpperCase() + domainName.substring(1);
+	domainName = _.result(this, isColl ? 'url' : 'urlRoot').replace(/^\//, '');
+	return domainName.charAt(0).toUpperCase() + domainName.substring(1);
+}
+
+function query(query, options) {
+	query || (query = {});
+	options || (options = {});
+	var instance = new this(), // Can be Model or Collection
+		domainName = dbUtils.quoteName(instance._domainName());
+
+	var sort = '',
+		orderBy = options.orderBy;
+	if (orderBy) {
+		if (!query[orderBy]) query[orderBy] = {$isundefined: false}; // The 'orderBy' attribute must be part of the query expression
+
+		sort = ' ORDER BY ' + dbUtils.quoteName(orderBy, instance._attributeSchema(orderBy));
+		if (/^(ASC|DESC)$/i.test(options.order)) sort += ' ' + options.order.toUpperCase();
 	}
-};
 
-var classMethods = {
+	var where = dbUtils.processQueryExpression(query, instance);
+	if (!_.isEmpty(where)) where = ' WHERE ' + where;
+
+	var limit = '';
+	if (instance instanceof Backbone.SDB.Model) limit = ' LIMIT 1';
+	else if (_.isNumber(options.limit)) limit = ' LIMIT ' + options.limit;
+
+	var queryExpression = 'SELECT * FROM ' + domainName + where + sort + limit;
+	if (options.returnQueryStr === true) return queryExpression;
+
+	return instance.fetch(_.extend({query: queryExpression}, options));
+}
+
+var modelParse = Backbone.SDB.Model.prototype.parse;
+
+Backbone.SDB.Model = Backbone.SDB.Model.extend({
+	_domainName: _domainName,
+	parse: function(obj) {
+		if (!_.isEmpty(obj._unsetAttributeNames)) this._unsetAttributeNames = this._unsetAttributeNames.concat(obj._unsetAttributeNames);
+		return modelParse.call(this, obj);
+	}
+}, {
+	query: query
+});
+
+Backbone.SDB.Collection = Backbone.SDB.Collection.extend({
+	_domainName: _domainName
+}, {
+	query: query,
 	count: function(query, options) {
 		options = _.extend({returnQueryStr: true}, options);
 		var selectExpr = this.query(query, options),
@@ -489,58 +530,21 @@ var classMethods = {
 			// Checking the HTTP response code.
 			var count = null;
 			if (error && error.code !== 200 && error.code !== 204) {
-				if (_.isFunction(options.error)) options.error({code: 'DBError', sdb: error});
+				if (_.isFunction(options.error)) options.error(count, {code: 'DBError', sdb: error});
 			} else {
 				try {
 					count = parseInt(response.SelectResult.Item.Attribute.Value);
 					if (!_.isNumber(count) || _.isNaN(count)) throw new TypeError('Invalid "count" value');
 				} catch (e) {
 					count = null;
-					if (_.isFunction(options.error)) options.error({code: 'DBError', sdb: response});
+					if (_.isFunction(options.error)) options.error(count, {code: 'DBError', sdb: response});
 				}
-				if (count && _.isFunction(options.success)) options.success(count, {sdb: response});
+				if (count !== null && _.isFunction(options.success)) options.success(count, {sdb: response});
 			}
 			
 			if (_.isFunction(options.complete)) options.complete(count, {sdb: response});
 		}, this)));
-	},
-	query: function(query, options) {
-		query || (query = {});
-		options || (options = {});
-		var instance = new this(), // Can be Model or Collection
-			domainName = dbUtils.quoteName(instance._domainName());
-
-		var sort = '',
-			orderBy = options.orderBy;
-		if (orderBy) {
-			if (!query[orderBy]) query[orderBy] = {$isundefined: false}; // The 'orderBy' attribute must be part of the query expression
-
-			sort = ' ORDER BY ' + dbUtils.quoteName(orderBy, instance._attributeSchema(orderBy));
-			if (/^(ASC|DESC)$/i.test(options.order)) sort += ' ' + options.order.toUpperCase();
-		}
-
-		var where = dbUtils.processQueryExpression(query, instance);
-		if (!_.isEmpty(where)) where = ' WHERE ' + where;
-
-		var limit = '';
-		if (instance instanceof Backbone.SDB.Model) limit = ' LIMIT 1';
-		else if (_.isNumber(options.limit)) limit = ' LIMIT ' + options.limit;
-
-		var queryExpression = 'SELECT * FROM ' + domainName + where + sort + limit;
-		if (options.returnQueryStr === true) return queryExpression;
-
-		return instance.fetch(_.extend({query: queryExpression}, options));
 	}
-};
-
-var modelParse = Backbone.SDB.Model.prototype.parse;
-
-Backbone.SDB.Model = Backbone.SDB.Model.extend(_.extend({
-	parse: function(obj) {
-		if (!_.isEmpty(obj._unsetAttributeNames)) this._unsetAttributeNames = this._unsetAttributeNames.concat(obj._unsetAttributeNames);
-		return modelParse.call(this, obj);
-	}
-}, instanceMethods), classMethods);
-Backbone.SDB.Collection = Backbone.SDB.Collection.extend(instanceMethods, classMethods);
+});
 
 module.exports = Backbone;

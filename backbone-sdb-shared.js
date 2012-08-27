@@ -196,7 +196,7 @@ Backbone.SDB = {
 				if (!_.isString(value)) return 'IncorrectType';
 
 				var min = _.result(attrSchema, 'minLength'),
-					max = _.result(attrSchema, 'maxLenght');
+					max = _.result(attrSchema, 'maxLength');
 				if (!_.isNumber(min) || _.isNaN(min) || min < 0) min = 0;
 				if (!_.isNumber(max) || _.isNaN(max) || max > 1024) max = 1024;
 
