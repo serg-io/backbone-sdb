@@ -32,9 +32,9 @@ Backbone.SDB = {
 
 			schema || (schema = this.constructor.schema);
 			if (_.isFunction(schema)) schema = schema(this);
-			
-			if (!schema[idAttrName]) schema[idAttrName] = {type: String};
-			if (!schema[idAttrName].itemName) schema[idAttrName].itemName = true;
+
+			schema[idAttrName] = schema[idAttrName] ? this._attributeSchema(schema[idAttrName]) : {type: String};
+			schema[idAttrName].itemName = true;
 
 			return schema;
 		},
