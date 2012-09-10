@@ -2,7 +2,7 @@
 	"name": "backbone-sdb",
 	"author": "Sergio Alcantara <iserg9@gmail.com> (https://github.com/serg-io)",
 	"description": "Backbone.js sync for SimpleDB",
-	"version": "0.0.3",
+	"version": "0.0.4",
 	"homepage": "https://github.com/serg-io/backbone-sdb",
 	"keywords": ["backbone", "simpledb", "sdb", "aws", "amazon"],
 	"repository": {
