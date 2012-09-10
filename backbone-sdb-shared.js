@@ -53,8 +53,8 @@ Backbone.SDB = {
 		parse: function(obj) {
 			return obj.model;
 		},
-		_attributeSchema: function(name) {
-			var attributeSchema = this._schema()[name];
+		_attributeSchema: function(attributeSchema) {
+			if (_.isString(attributeSchema)) attributeSchema = this._schema()[attributeSchema];
 			if (_.isUndefined(attributeSchema)) return {};
 
 			var array = _.isArray(attributeSchema),
@@ -258,8 +258,8 @@ Backbone.SDB = {
 		_idAttribute: function() {
 			return _.result(this.model.prototype, 'idAttribute');
 		},
-		_attributeSchema: function(name) {
-			return this.model.prototype._attributeSchema.call(this, name);
+		_attributeSchema: function(attributeSchema) {
+			return this.model.prototype._attributeSchema.call(this, attributeSchema);
 		},
 		fetch: function(options) {
 			return Backbone.Collection.prototype.fetch.call(this, bindContext(options));

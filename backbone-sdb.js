@@ -1,5 +1,5 @@
 /**
-backbone-sdb 0.0.3 - (c) 2012 Sergio Alcantara
+backbone-sdb 0.0.4 - (c) 2012 Sergio Alcantara
 Server side (Node.js) `Backbone.sync()` SimpleDB implementation
 
 @module SimpleDB
@@ -232,15 +232,15 @@ function DBUtils() {
 		} else if (type === Date) {
 			return new Date(value);
 		} else if (type === String) {
-			return value;
+			// If the value was and empty string when it was saved, aws2js.sdb would return an empty object as the value:
+			// {Name: 'attributename', Value: {}}
+			return !_.isString(value) && _.isObject(value) && _.isEmpty(value) ? '' : value;
 		}
 
-		// If the value was and empty string when it was saved, aws2js.sdb would return an empty object as the value:
-		// {Name: 'attributename', Value: {}}
 		return _.isObject(value) && _.isEmpty(value) ? '' : JSON.parse(value);
 	};
 	
-	this.putItem = function(model, options) {
+	this.putItem = function(model, options, method) {
 		var idAttrName = _.result(model, 'idAttribute');
 
 		var changed = {};
@@ -249,7 +249,7 @@ function DBUtils() {
 			DomainName: model._domainName()
 		};
 		_.extend(params, options.sdb);
-		
+
 		var i = 0;
 		if (!_.isEmpty(model._unsetAttributeNames) && !model.isNew()) {
 			var delParams = _.clone(params);
@@ -258,9 +258,17 @@ function DBUtils() {
 			});
 			sdb.request('DeleteAttributes', delParams, function(error, response) {});
 		}
-		
+
+		if (method === 'update') {
+			_.each(model._schema(), function(attributeSchema, attrName) {
+				var attrSchema = model._attributeSchema(attributeSchema),
+					updated = _.result(attrSchema, 'onUpdate');
+				if (!_.isUndefined(updated)) changed[attrName] = updated;
+			});
+		}
+
 		i = 0;
-		var attributes = _.extend({}, model.toJSON().model, changed);
+		var attributes = _.extend({}, model.attributes, changed);
 		delete attributes[idAttrName];
 		_.each(attributes, function(value, name) {
 			var attrSchema = model._attributeSchema(name);
@@ -451,7 +459,7 @@ function DBUtils() {
 	
 	function sync(method, instance, options) {
 		if (method === 'create' || method === 'update') {
-			this.putItem(instance, options);
+			this.putItem(instance, options, method);
 		} else if (method === 'read') {
 			if (instance instanceof Backbone.SDB.Model && instance.id) this.getItem(instance, options);
 			else this.select(instance, options);
