@@ -250,8 +250,9 @@ function DBUtils() {
 		};
 		_.extend(params, options.sdb);
 
-		var i = 0;
-		if (!_.isEmpty(model._unsetAttributeNames) && !model.isNew()) {
+		var i = 0,
+			hasUnsetAttrs = !_.isEmpty(model._unsetAttributeNames) && !model.isNew();
+		if (hasUnsetAttrs) {
 			var delParams = _.clone(params);
 			_.each(model._unsetAttributeNames, function(name) {
 				delParams['Attribute.' + i++ + '.Name'] = name;
@@ -270,6 +271,13 @@ function DBUtils() {
 		i = 0;
 		var attributes = _.extend({}, model.attributes, changed);
 		delete attributes[idAttrName];
+
+		// If all attributes have been unset
+		if (hasUnsetAttrs && _.isEmpty(attributes)) {
+			options.success();
+			return;
+		}
+
 		_.each(attributes, function(value, name) {
 			var attrSchema = model._attributeSchema(name);
 			if (attrSchema) {

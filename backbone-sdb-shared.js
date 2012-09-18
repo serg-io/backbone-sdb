@@ -26,12 +26,12 @@ Backbone.SDB = {
 	isISODate: isISODate,
 
 	Model: Backbone.Model.extend({
-		_unsetAttributeNames: [],
 		_schema: function(schema) {
 			var idAttrName = this._idAttribute();
 
 			schema || (schema = this.constructor.schema);
 			if (_.isFunction(schema)) schema = schema(this);
+			schema || (schema = {});
 
 			schema[idAttrName] = schema[idAttrName] ? this._attributeSchema(schema[idAttrName]) : {type: String};
 			schema[idAttrName].itemName = true;
@@ -106,13 +106,6 @@ Backbone.SDB = {
 			return attributes;
 		},
 		set: function(key, value, options) {
-			if (options && options.unset) {
-				if (key === _.result(model, 'idAttribute')) throw 'The "idAttribute" cannot be unset';
-
-				this._unsetAttributeNames.push(key);
-				return Backbone.Model.prototype.set.apply(this, arguments);
-			}
-
 			var attrs;
 			if (_.isObject(key) || key == null) {
 				attrs = key;
@@ -122,13 +115,22 @@ Backbone.SDB = {
 				attrs[key] = value;
 			}
 
-			return Backbone.Model.prototype.set.call(this, this._processJSON(attrs), options);
+			if (options && options.unset) {
+				if (key === _.result(this, 'idAttribute')) throw 'The "idAttribute" cannot be unset';
+
+				this._unsetAttributeNames || (this._unsetAttributeNames = []);
+				this._unsetAttributeNames.push(key);
+				return Backbone.Model.prototype.set.call(this, key, value, options);
+			}
+
+			attrs = this._processJSON(attrs);
+			return Backbone.Model.prototype.set.call(this, attrs, options);
 		},
 		validate: function(attributes) {
 			var errors = [];
 			_.each(attributes, function(value, name) {
 				var attrSchema = this._attributeSchema(name);
-				if (attrSchema && !_.isUndefined(value)) {
+				if (!_.isEmpty(attrSchema) && !_.isUndefined(value)) {
 					if (value === null) {
 						var nullable = _.result(attrSchema, 'nullable') !== false;
 						if (!nullable) {
@@ -226,18 +228,41 @@ Backbone.SDB = {
 			}
 		},
 		toJSON: function(options) {
-			var json = {
-				model: Backbone.Model.prototype.toJSON.call(this, options)
-			};
-			
-			if (!_.isEmpty(this._unsetAttributeNames) && !this.isNew()) { // If the model isNew, there's no need to unset any attributes
-				var _unset = [];
-				_.each(_.uniq(this._unsetAttributeNames), function(attrName) {
-					// If a value was set, after the attribute was unset, the new value will replace the old one therefore there's no need to unset it
-					if (_.isUndefined(json.model[attrName])) _unset.push(attrName);
-				});
-				if (!_.isEmpty(_unset)) json._unsetAttributeNames = _unset;
+			var attrs = Backbone.Model.prototype.toJSON.call(this, options),
+				json = {model: attrs};
+
+			if (options) {
+				if (!_.isEmpty(options.exclude)) {
+					var filtered = {},
+						exclude = options.exclude;
+					_.isArray(exclude) || (exclude = [exclude]);
+
+					_.each(attrs, function(value, name) {
+						if (_.indexOf(exclude, name) === -1) filtered[name] = value;
+					});
+					json.model = filtered;
+				} else if (!_.isEmpty(options.include)) {
+					var filtered = {},
+						include = options.include;
+					_.isArray(include) || (include = [include]);
+
+					_.each(attrs, function(value, name) {
+						if (_.indexOf(include, name) !== -1) filtered[name] = value;
+					});
+					json.model = filtered;
+				}
+
+				if (options.includeUnset && !_.isEmpty(this._unsetAttributeNames) && !this.isNew()) { // If the model isNew, there's no need to unset any attributes
+					var _unset = [];
+					_.each(_.uniq(this._unsetAttributeNames), function(attrName) {
+						// If a value was set, after the attribute was unset,
+						// the new value will replace the old one therefore there's no need to unset it
+						if (_.isUndefined(attrs[attrName])) _unset.push(attrName);
+					});
+					if (!_.isEmpty(_unset)) json._unsetAttributeNames = _unset;
+				}
 			}
+
 			return json;
 		},
 		defaults: function() {
