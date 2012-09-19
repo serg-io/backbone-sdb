@@ -51,7 +51,7 @@ Backbone.SDB = {
 			return Backbone.Model.prototype.fetch.call(this, bindContext(options));
 		},
 		parse: function(obj) {
-			return obj.model;
+			return obj ? obj.model : {};
 		},
 		_attributeSchema: function(attributeSchema) {
 			if (_.isString(attributeSchema)) attributeSchema = this._schema()[attributeSchema];

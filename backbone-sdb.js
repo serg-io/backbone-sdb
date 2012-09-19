@@ -522,7 +522,7 @@ var modelParse = Backbone.SDB.Model.prototype.parse;
 Backbone.SDB.Model = Backbone.SDB.Model.extend({
 	_domainName: _domainName,
 	parse: function(obj) {
-		if (!_.isEmpty(obj._unsetAttributeNames)) this._unsetAttributeNames = this._unsetAttributeNames.concat(obj._unsetAttributeNames);
+		if (obj && !_.isEmpty(obj._unsetAttributeNames)) this._unsetAttributeNames = this._unsetAttributeNames.concat(obj._unsetAttributeNames);
 		return modelParse.call(this, obj);
 	}
 }, {
