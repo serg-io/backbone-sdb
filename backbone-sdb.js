@@ -248,12 +248,11 @@ function DBUtils() {
 			ItemName: model.id || (changed[idAttrName] = uuid()),
 			DomainName: model._domainName()
 		};
-		_.extend(params, options.sdb);
 
 		var i = 0,
 			hasUnsetAttrs = !_.isEmpty(model._unsetAttributeNames) && !model.isNew();
 		if (hasUnsetAttrs) {
-			var delParams = _.clone(params);
+			var delParams = _.extend({}, params, options.sdb);
 			_.each(model._unsetAttributeNames, function(name) {
 				delParams['Attribute.' + i++ + '.Name'] = name;
 			});
@@ -312,6 +311,7 @@ function DBUtils() {
 			}
 		}, this);
 
+		_.extend(params, options.sdb);
 		// If a 'close' event was fired on the SimpleDB HTTP request object, the callback might be called twice,
 		// therefore, the callback is forced to run only once.
 		// A 'close' can be fired after 'end': http://nodejs.org/docs/latest/api/http.html#event_end_
