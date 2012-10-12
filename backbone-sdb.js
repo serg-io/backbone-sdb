@@ -244,10 +244,14 @@ function DBUtils() {
 		var idAttrName = _.result(model, 'idAttribute');
 
 		var changed = {};
-		var params = {
-			ItemName: model.id || (changed[idAttrName] = uuid()),
-			DomainName: model._domainName()
-		};
+		var params = {DomainName: model._domainName()};
+
+		if (model.id) {
+			var attrSchema = model._attributeSchema(idAttrName);
+			params.ItemName = _.isString(model.id) || !attrSchema ? model.id : this.encode(model.id, attrSchema);
+		} else {
+			params.ItemName = changed[idAttrName] = uuid();
+		}
 
 		var i = 0,
 			hasUnsetAttrs = !_.isEmpty(model._unsetAttributeNames) && !model.isNew();
@@ -326,10 +330,11 @@ function DBUtils() {
 	};
 	
 	this.deleteItem = function(model, options) {
-		var params = {
-			ItemName: model.id,
-			DomainName: model._domainName()
-		};
+		var params = {DomainName: model._domainName()},
+			idAttrName = _.result(model, 'idAttribute'),
+			attrSchema = model._attributeSchema(idAttrName);
+		params.ItemName = _.isString(model.id) || !attrSchema ? model.id : this.encode(model.id, attrSchema);
+		
 		_.extend(params, options.sdb);
 		
 		// If a 'close' event was fired on the SimpleDB HTTP request, the callback might be called twice,
@@ -377,10 +382,11 @@ function DBUtils() {
 	};
 	
 	this.getItem = function(model, options) {
-		var params = {
-			ItemName: model.id,
-			DomainName: model._domainName()
-		};
+		var params = {DomainName: model._domainName()},
+			idAttrName = _.result(model, 'idAttribute'),
+			attrSchema = model._attributeSchema(idAttrName);
+		params.ItemName = _.isString(model.id) || !attrSchema ? model.id : this.encode(model.id, attrSchema);
+
 		_.extend(params, options.sdb);
 		
 		// If a 'close' event was fired on the SimpleDB HTTP request, the callback might be called twice,
