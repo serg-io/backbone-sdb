@@ -105,6 +105,7 @@ exports.read = function(test) {
 	_.times(len, function(i) {
 		new Client({id: clients[i].id}).fetch({
 			complete: done,
+			sdb: {ConsistentRead: true},
 			success: function(client, response) {
 				var expected = _.find(clients, function(c) { return c.id === client.id; });
 				

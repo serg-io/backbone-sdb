@@ -6,21 +6,50 @@ Server side (Node.js) `Backbone.sync()` SimpleDB implementation
 @author Sergio Alcantara
  */
 
-var aws = require('aws2js'),
+var http = require('http'),
+	aws = require('aws2js'),
 	_ = require('underscore'),
 	uuid = require('node-uuid'),
 	Backbone = require('./backbone-sdb-shared');
 
-var sdb = null;
+var accessKey = null,
+	securityKey = null,
+	sdb = aws.load('sdb'),
+	credentialsExpiration = null;
 
-(Backbone.SDB.setup = function(accessKeyID, secretAccessKey, awsRegion) {
-	var accessKey = accessKeyID || process.env.AWS_ACCESS_KEY_ID,
-		secretKey = secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY,
-		region = awsRegion || process.env.AWS_REGION || 'us-east-1';
-	
-	if (accessKey && secretKey) sdb = aws.load('sdb', accessKey, secretKey);
-	if (sdb && region) sdb.setRegion(region);
+/**
+IP address of the EC2 metadata service.
+
+@property EC2_METADATA_HOST
+@type String
+@final
+@private
+*/
+var EC2_METADATA_HOST = '169.254.169.254';
+
+/**
+Path to the `security-credentials` within the EC2 metadata service.
+
+@property SECURITY_CREDENTIALS_RESOURCE
+@type String
+@final
+@private
+*/
+var SECURITY_CREDENTIALS_RESOURCE = '/latest/meta-data/iam/security-credentials/';
+
+var CREDENTIALS_EXPIRATION_THRESHOLD = 1000 * 60 * 5; // 5 minutes in milliseconds
+
+
+(Backbone.SDB.setCredentials = function(accessKeyID, secretAccessKey, awsSecurityToken) {
+	accessKey = accessKeyID || process.env.AWS_ACCESS_KEY_ID || null;
+	secretKey = secretAccessKey || process.env.AWS_SECRET_ACCESS_KEY || null;
+	sdb.setCredentials(accessKey, secretKey, awsSecurityToken || null);
 })();
+
+(Backbone.SDB.setRegion = function(awsRegion) {
+	sdb.setRegion(awsRegion || process.env.AWS_REGION || 'us-east-1');
+})();
+
 
 function DBUtils() {
 	this.processQueryExpression = function(query, instance) {
@@ -213,7 +242,7 @@ function DBUtils() {
 				precision = _.result(attrSchema, 'precision');
 			min = _.isNumber(min) ? Math.abs(precision ? min : Math.floor(min)) : 0;
 
-			var val = new Number(value).valueOf();
+			var val = new Number(value.replace(/^0+/, '')).valueOf();
 			if (!precision) return val - min; // No precision means that the number is an integer
 
 			// The following is a workaround to Javascript's floating digits problem. Consider this:
@@ -471,6 +500,86 @@ function DBUtils() {
 		}, this)));
 	};
 	
+	/**
+	This is the method that send the actual HTTP requests, caches the response, and executes the callback after the response has been received.
+
+	@method httpRequest
+	@private
+	@param {Object} options The [HTTP options](http://nodejs.org/api/http.html#http_http_request_options_callback) to use when sending the request.
+	@param {Buffer|String} body The request's body. Must be a [Buffer](http://nodejs.org/api/buffer.html) or a String.
+	Set it to `null`, `undefined`, `false`, or `''` to send a request with no body (a `GET` request for instance).
+	@param {Function} [callback] Callback function to call after the response has been received.
+	*/
+	function httpRequest(options, body, callback) {
+		// The `processResponse` callback should only be called once. The [http docs](http://nodejs.org/api/http.html#http_event_close_1)
+		// say that a 'close' event can be fired after the 'end' event has been fired. To ensure that the `processResponse` callback
+		// is called only once it is wrapped by `_.once()`
+		var processResponse = _.once(function(error, responseBody, httpResponse) {
+			if (!error && httpResponse && httpResponse.statusCode !== 200) error = httpResponse.statusCode;
+			if (_.isFunction(callback)) callback(error, responseBody, httpResponse);
+		});
+
+		var request = http.request(options, function(httpResponse) {
+			var responseBody = '';
+			httpResponse.on('data', function(data) {
+				responseBody += data.toString(); // 'data' can be a String or a Buffer object
+			}).on('close', function(error) {
+				processResponse(error, responseBody, httpResponse);
+			}).on('end', function() {
+				processResponse(undefined, responseBody, httpResponse);
+			});
+		}).on('error', processResponse);
+
+		if (!_.isEmpty(body)) request.write(body);
+		request.end();
+	}
+
+	/**
+	Gets the EC2 IAM role name from the metadata service.
+
+	@method getEC2IAMRole
+	@private
+	@param {Function} callback Callback function that receives the role returned by the metadata service.
+	*/
+	function getEC2IAMRole(callback) {
+		httpRequest({host: EC2_METADATA_HOST, path: SECURITY_CREDENTIALS_RESOURCE}, null, function(error, role, httpResponse) {
+			callback(error, _.isString(role) ? role.trim() : role, httpResponse);
+		});
+	}
+
+	/**
+	Gets the security credentials from the metadata service.
+
+	@method getEC2IAMSecurityCredentials
+	@private
+	@param {String} role IAM role name.
+	@param {Function} callback Callback function that receives the parsed credentials object returned by the metadata service.
+	*/
+	function getEC2IAMSecurityCredentials(role, callback) {
+		httpRequest({host: EC2_METADATA_HOST, path: SECURITY_CREDENTIALS_RESOURCE + role}, null, function(error, jsonStr, httpResponse) {
+			var credentials;
+			try {
+				credentials = JSON.parse(jsonStr);
+			} catch (parseError) {
+				if (!error) error = parseError;
+			}
+
+			callback(error, credentials, httpResponse);
+		});
+	}
+
+	/**
+	Helper function that returns `true` if getting the security credentials from the metadata service is needed or `false` otherwise.
+
+	@method needsToLoadEC2IAMRoleCredentials
+	@private
+	*/
+	function needsToLoadEC2IAMRoleCredentials() {
+		if (!accessKey || !secretKey) return true;
+		if (credentialsExpiration === null) return false;
+		return (credentialsExpiration.getTime() - Date.now()) < CREDENTIALS_EXPIRATION_THRESHOLD;
+	}
+
 	function sync(method, instance, options) {
 		if (method === 'create' || method === 'update') {
 			this.putItem(instance, options, method);
@@ -482,7 +591,29 @@ function DBUtils() {
 		}
 	}
 	
-	Backbone.sync = _.bind(sync, this);
+	Backbone.sync = _.bind(function() {
+		if (needsToLoadEC2IAMRoleCredentials()) {
+			var _this = this,
+				_arguments = arguments;
+
+			getEC2IAMRole(function(error, role, httpResponse) {
+				getEC2IAMSecurityCredentials(role, function(error, credentials, httpResponse) {
+					if (!credentials || !credentials.AccessKeyId || !credentials.SecretAccessKey) {
+						throw 'AWS credentials not set. ' +
+							'Please set AWS credentials manually, using environment variables, or using EC2 IAM roles. ' +
+							'See documentation for details.';
+					}
+
+					Backbone.SDB.setCredentials(credentials.AccessKeyId, credentials.SecretAccessKey, credentials.Token);
+					credentialsExpiration = new Date(credentials.Expiration);
+
+					sync.apply(_this, _arguments);
+				});
+			});
+		} else {
+			sync.apply(this, arguments);
+		}
+	}, this);
 }
 var dbUtils = new DBUtils();
 
