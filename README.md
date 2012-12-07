@@ -10,16 +10,15 @@ Execute the following command at the root of your project:
 
 	npm install backbone-sdb
 
-`Backbone.SDB.setup(accessKeyID, secretAccessKey, awsRegion)`
--------------------------------------------------------------
+`Backbone.SDB.setCredentials(accessKeyID, secretAccessKey, awsSecurityToken)`
+-----------------------------------------------------------------------------
 
-Sets up the AWS access key id, secret access key, and region to use. If one, or more, of these are not provided, it attempts to get them from the following environment variables:
+Sets up the AWS access key id, secret access key, and the optional security token. If you don't manually call this method, it would automatically attempt to get the credentials from environment variables (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`) or from the [EC2 IAM Role credentials](http://docs.amazonwebservices.com/AWSEC2/latest/UserGuide/UsingIAM.html#UsingIAMrolesWithAmazonEC2Instances).
 
-* `AWS_ACCESS_KEY_ID`
-* `AWS_SECRET_ACCESS_KEY`
-* `AWS_REGION` (The default region is: `'us-east-1'`)
+`Backbone.SDB.setRegion(region)`
+--------------------------------
 
-You don't have to call the `setup()` method if these values are in your environment settings, `backbone-sdb` automatically picks them up when you call `require('backbone-sdb')`.
+Use this method to manually specify the AWS region to use. If you don't manually call this method it would attempt to get the region from the `AWS_REGION` environment variable or use the default region: `us-east-1`.
 
 `Backbone.SDB.Model`
 --------------------
